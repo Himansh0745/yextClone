@@ -10,7 +10,7 @@ export class WhereToScraperService {
   constructor(
     @InjectRepository(Location)
     private locationRepo: Repository<Location>,
-  ) {}
+  ) { }
 
   async scrapeWhereTo(
     name: string,
