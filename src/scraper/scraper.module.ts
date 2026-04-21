@@ -6,11 +6,12 @@ import { Location } from './location.entity';
 import { GoogleMapsScraperService } from './multiService/GoogleMapsScraper.service';
 import { YelpScraperService } from './multiService/yelpScaper.service';
 import { BingScraperService } from './multiService/bingScraper.service';
-import { InstagramScraperService } from './multiService/instagramScraper.service';
+import { InstagramScraperService } from './demoService/instagramScrapper.service';
 import { N49ScraperService } from './multiService/n49Scraper.service';
 import { WhereToScraperService } from './demoService/wheretoScraper.service';
 import { HotfrogScraperService } from './demoService/hotfrogScraper.service';
-import { BrownbookScraperService } from './demoService/brownbookScraper.service';
+// import { BrownbookScraperService } from './demoService/brownbookScraper.service';
+import { FacebookScraperService } from './demoService/facebookScraper.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Location])],
@@ -24,7 +25,8 @@ import { BrownbookScraperService } from './demoService/brownbookScraper.service'
     N49ScraperService,
     WhereToScraperService,
     HotfrogScraperService,
-    BrownbookScraperService,
+    // BrownbookScraperService,
+    FacebookScraperService,
   ],
 })
 export class ScraperModule { }

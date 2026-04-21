@@ -3,11 +3,13 @@ import { LocationResponseDto } from './dto/location-response.dto';
 import { GoogleMapsScraperService } from './multiService/GoogleMapsScraper.service';
 import { YelpScraperService } from '../scraper/multiService/yelpScaper.service';
 import { BingScraperService } from '../scraper/multiService/bingScraper.service';
-import { InstagramScraperService } from '../scraper/multiService/instagramScraper.service';
+import { InstagramScraperService } from '../scraper/demoService/instagramScrapper.service';
 import { N49ScraperService } from '../scraper/multiService/n49Scraper.service';
 import { WhereToScraperService } from './demoService/wheretoScraper.service';
 import { HotfrogScraperService } from './demoService/hotfrogScraper.service';
-import { BrownbookScraperService } from './demoService/brownbookScraper.service';
+// import { BrownbookScraperService } from './demoService/brownbookScraper.service';
+import { FacebookScraperService } from './demoService/facebookScraper.service';
+
 import { Location } from './location.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -24,7 +26,8 @@ export class ScraperService {
     private n49Service: N49ScraperService,
     private wheretoScraperService: WhereToScraperService,
     private hotfrogScraperService: HotfrogScraperService,
-    private brownbookScraperService: BrownbookScraperService,
+    // private brownbookScraperService: BrownbookScraperService,
+    private facebookScraperService: FacebookScraperService,
   ) { }
 
   //combine
@@ -35,16 +38,17 @@ export class ScraperService {
     await this.locationRepo.clear();
     // console.log(`🚀 Starting Multi-Platform Scraping for: ${name}`);
 
-    const [googleData, yelpData, bingData, instagramData, N49ScraperData, wheretoData, hotfrogData, brownbookData] =
+    const [googleData, yelpData, bingData, instagramData, N49ScraperData, wheretoData, hotfrogData, facebookData] =
       await Promise.all([
         this.googleMapsScraperService.scrapeGoogleMaps(`${name} ${location}`),
         this.yelpScraperService.scrapeYelp(`${name} `, `${location}`),
         this.bingService.scrapeBing(name, location),
-        this.instagramService.scrapeInstagram(name, location),
+        this.instagramService.scrapeInstagram(name),
         this.n49Service.scrapeN49(name, location),
         this.wheretoScraperService.scrapeWhereTo(name, location),
         this.hotfrogScraperService.scrapeHotfrog(name, location),
-        this.brownbookScraperService.scrapeBrownbook(name, location),
+        // this.brownbookScraperService.scrapeBrownbook(name, location),
+        this.facebookScraperService.scrapeFacebook(name),
       ]);
 
     const combinedData = [
@@ -55,7 +59,8 @@ export class ScraperService {
       ...N49ScraperData,
       ...wheretoData,
       ...hotfrogData,
-      ...brownbookData,
+      // ...brownbookData,
+      ...facebookData,
     ];
 
     return combinedData;

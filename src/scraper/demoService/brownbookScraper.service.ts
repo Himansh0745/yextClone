@@ -1,13 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { LocationResponseDto } from '../dto/location-response.dto';
-import { Location } from '../location.entity';
+import { chromium } from 'playwright';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-
-// IMPORTANT: npm install playwright-extra puppeteer-extra-plugin-stealth
-const { chromium } = require('playwright-extra');
-const stealth = require('puppeteer-extra-plugin-stealth')();
-chromium.use(stealth);
+import { Location } from '../location.entity';
 
 @Injectable()
 export class BrownbookScraperService {
@@ -16,82 +12,109 @@ export class BrownbookScraperService {
     private locationRepo: Repository<Location>,
   ) {}
 
-  async scrapeBrownbook(name: string, location: string): Promise<LocationResponseDto[]> {
-    // We use headless: false if you are testing locally so you can see if it bypasses
-    const browser = await chromium.launch({ headless: true }); 
+  async scrapeBrownbook(
+    name: string,
+    location: string,
+  ): Promise<LocationResponseDto[]> {
+    const browser = await chromium.launch({
+      headless: false, // important for stability
+      slowMo: 100,
+    });
+
     const context = await browser.newContext({
-      viewport: { width: 1280, height: 720 },
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+      userAgent:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123 Safari/537.36',
     });
 
     const page = await context.newPage();
 
     try {
-      // STEP 1: THE SEARCH
-      const searchQuery = encodeURIComponent(`${name} ${location}`.trim());
-      const searchUrl = `https://www.brownbook.net/search/ca/all-cities/${searchQuery}?page=1`;
+      // STEP 1: SEARCH PAGE
+      const searchUrl = `https://www.brownbook.net/search/ca/all-cities/${encodeURIComponent(
+        name,
+      )}?page=1`;
 
-      console.log(`[Brownbook] Attempting Stealth Search: ${searchUrl}`);
-      
-      // Go to search page
-      await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 60000 });
+      console.log(`[Brownbook] Searching: ${searchUrl}`);
 
-      // HUMAN DELAY: Wait a bit to look like a person reading the page
-      await page.waitForTimeout(3000);
+      await page.goto(searchUrl, {
+        waitUntil: 'networkidle',
+        timeout: 30000,
+      });
 
-      // STEP 2: CHECK FOR RESULTS
-      // If we see "Results Found 0" or the CAPTCHA box, we try a small scroll to trigger visibility
-      const resultsCount = await page.locator('b:has-text("Results Found")').textContent();
-      
-      if (resultsCount?.includes('0') || await page.$('.g-recaptcha')) {
-        console.log('[Brownbook] Captcha/Zero Results detected. Trying behavioral bypass...');
-        await page.mouse.wheel(0, 500); // Scroll down
-        await page.waitForTimeout(2000);
-        // Without a paid solver, if it's still 0, the IP is likely soft-blocked.
-      }
+      // Wait for results to appear
+      await page.waitForSelector(`text=${name}`, { timeout: 15000 });
 
-      // STEP 3: FIND AND CLICK THE BUSINESS LINK
-      // We look for the link that matches our business name
-      const businessLinkLocator = page.locator(`a[href*="/business/"]:has-text("${name}")`).first();
-      
-      // Check if it exists
-      if (await businessLinkLocator.count() === 0) {
-        console.error('[Brownbook] Could not find the business link in results.');
+      // STEP 2: CLICK RESULT (KEY FIX)
+      const result = page.locator(`text=${name}`).first();
+
+      if (!(await result.count())) {
+        console.error('No matching result found');
         return [];
       }
 
-      const targetLink = await businessLinkLocator.getAttribute('href');
-      const finalUrl = targetLink?.startsWith('http') ? targetLink : `https://www.brownbook.net${targetLink}`;
-      
-      console.log(`[Brownbook] Moving to Detail Page: ${finalUrl}`);
+      await result.click();
 
-      // STEP 4: NAVIGATE TO FINAL LINK & SCRAPE
-      await page.goto(finalUrl, { waitUntil: 'domcontentloaded' });
-      await page.waitForSelector('#info-block', { timeout: 10000 });
+      // Wait until navigated to business page
+      await page.waitForURL(/\/business\//, { timeout: 50000 });
+
+      const finalUrl = page.url();
+      console.log(`Navigated to: ${finalUrl}`);
+
+      //STEP 3: SCRAPE DATA
+      await page.waitForSelector('p.text-3xl', { timeout: 15000 });
 
       const extracted = await page.evaluate(() => {
-        const clean = (txt: string | null | undefined) => txt ? txt.replace(/\s+/g, ' ').trim() : '-';
-        
-        // Name: Based on your screenshot class
-        const nameText = clean(document.querySelector('p.text-3xl.font-bold')?.textContent);
-        
-        // Phone: Based on your screenshot ID
-        const phoneText = clean(document.querySelector('#business-phone')?.textContent);
-        
-        // Address: Cleaning the "CA" flag prefix from the flex container
-        const addressEl = document.querySelector('div.flex-wrap.items-center.mb-10');
-        const addressText = addressEl ? clean(addressEl.textContent?.replace(/^CA/, '')) : '-';
+        const clean = (txt: string | null | undefined) =>
+          txt ? txt.replace(/\s+/g, ' ').trim() : '-';
+
+        // NAME
+        const name = clean(
+          document.querySelector('p.text-3xl')?.textContent,
+        );
+
+        //ADDRESS (FIXED — from your DOM screenshot)
+        let address = '-';
+
+        const container = document.querySelector(
+          'div.flex.flex-wrap.items-center'
+        );
+
+        if (container) {
+          const text = Array.from(container.childNodes)
+            .map((node) => node.textContent?.trim())
+            .filter(Boolean)
+            .join(' ');
+
+          address = clean(text);
+        }
+
+        // PHONE (correct selector from your screenshot)
+        const phone = clean(
+          document.querySelector('#business-phone')?.textContent,
+        );
 
         return {
-          name: nameText,
-          phone: phoneText,
-          address: addressText,
-          locationLink: window.location.href
+          name,
+          address,
+          phone,
+          locationLink: window.location.href,
         };
       });
 
-      // STEP 5: FORMAT AND SAVE
-      const result: LocationResponseDto = {
+      // 🧹 FILTER (same logic as your other scrapers)
+      const keywords = name.toLowerCase().split(' ');
+      const itemName = extracted.name.toLowerCase();
+
+      const matchCount = keywords.filter((k) =>
+        itemName.includes(k),
+      ).length;
+
+      if (matchCount < Math.ceil(keywords.length / 2)) {
+        console.log(`[Brownbook] Filtered: ${extracted.name}`);
+        return [];
+      }
+
+      const resultData: LocationResponseDto = {
         name: extracted.name,
         address: extracted.address,
         phone: extracted.phone,
@@ -100,12 +123,15 @@ export class BrownbookScraperService {
         timestamp: new Date().toISOString(),
       };
 
-      await this.saveResults([result]);
-      console.log(`[Brownbook] Successfully scraped: ${extracted.name}`);
-      return [result];
+      // SAVE TO DB
+      await this.saveResults([resultData]);
 
+      return [resultData];
     } catch (error) {
-      console.error('[Brownbook] Scraper stopped at step:', (error as Error).message);
+      console.error(
+        '[Brownbook] Scraper Error:',
+        (error as Error).message,
+      );
       return [];
     } finally {
       await browser.close();
@@ -114,9 +140,14 @@ export class BrownbookScraperService {
 
   async saveResults(results: LocationResponseDto[]) {
     for (const item of results) {
-      const existing = await this.locationRepo.findOne({ where: { locationLink: item.locationLink } });
+      const existing = await this.locationRepo.findOne({
+        where: { locationLink: item.locationLink },
+      });
+
       if (!existing) {
-        await this.locationRepo.save(this.locationRepo.create(item));
+        await this.locationRepo.save(
+          this.locationRepo.create(item),
+        );
       } else {
         await this.locationRepo.update(existing.id, item);
       }

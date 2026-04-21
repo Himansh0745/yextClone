@@ -10,7 +10,7 @@ export class HotfrogScraperService {
   constructor(
     @InjectRepository(Location)
     private locationRepo: Repository<Location>,
-  ) {}
+  ) { }
 
   async scrapeHotfrog(
     name: string,
